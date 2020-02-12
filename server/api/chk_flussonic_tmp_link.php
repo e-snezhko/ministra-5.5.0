@@ -7,7 +7,11 @@ if (empty($_GET['token'])){
     exit;
 }
 
-$uid = Itv::checkTemporaryLink($_GET['token']);
+if (stripos($_GET['media_request'], 'vod_file')) {
+    $uid = Master::checkTemporaryLink($_GET['token']);
+}else{
+    $uid = Itv::checkTemporaryLink($_GET['token']);
+}
 
 if (!$uid){
     header($_SERVER["SERVER_PROTOCOL"]." 403 Forbidden");
