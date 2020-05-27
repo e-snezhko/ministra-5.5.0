@@ -115,6 +115,8 @@ class TvArchive extends Master implements \Stalker\Lib\StbApi\TvArchive
 
                 $res['download_cmd'] = 'http://'.$storage['storage_ip'].'/'.$match[2].'/archive-'.$start_timestamp.'-'.($stop_timestamp - $start_timestamp).'.ts';
 
+                $res['download_cmd'] .= '?token='.$this->createTemporaryToken($this->stb->id);
+
             }else{
                 $res['error'] = 'link_fault';
             }
