@@ -6,27 +6,25 @@ class Kinopoisk implements \Stalker\Lib\StbApi\vclubinfo
 {
     public static function getInfoById($id, $type = NULL){
 
+        stream_context_set_default([
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+            ],
+        ]);
+
         $movie_info = array('kinopoisk_id' => $id);
         $movie_url = 'https://www.kinopoisk.ru/film/' . $id . '/';
         $series_url = 'https://www.kinopoisk.ru/series/' . $id . '/';
-        $headers = @get_headers($series_url);
-        $is_film = true;
-        if (strpos($headers[0], '404') == 0) {
-            $movie_url = 'https://www.kinopoisk.ru/series/' . $id . '/';
-            $is_film = false;
+        $series_headers = get_headers($series_url);
+
+        if (strpos($series_headers[0], '200')) {
+            $movie_url = $series_url;
         }
+
         $movie_info['kinopoisk_url'] = $movie_url;
         $movie_info['cover'] = 'https://kinopoisk.ru/images/film/' . $id . '.jpg';
-        $cover_big_url = 'https://kinopoisk.ru/images/film_big/' . $id . '.jpg';
-        $big_cover_headers = get_headers($cover_big_url, 1);
-
-        if ($big_cover_headers !== false){
-            if (strpos($big_cover_headers[0], '302') !== false && !empty($big_cover_headers['Location'])){
-                $movie_info['cover_big'] = $big_cover_headers['Location'];
-            }else{
-                $movie_info['cover_big'] = $cover_big_url;
-            }
-        }
+        $movie_info['cover_big'] = 'https://kinopoisk.ru/images/film_big/' . $id . '.jpg';
 
         $ch = curl_init();
 
@@ -39,7 +37,7 @@ class Kinopoisk implements \Stalker\Lib\StbApi\vclubinfo
                 'Connection: keep-alive',
                 'Cache-Control: no-cache',
                 'Pragma: no-cache',
-                'User-Agent: Mozilla/5.0 (Windows NT 6.1) AppleWebKit/536.5 (KHTML, like Gecko) Chrome/19.0.1084.9 Safari/536.5',
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36',
                 'Accept: text/css,*/*;q=0.1',
                 'Accept-Encoding: deflate,sdch',
                 'Accept-Language: ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4',
@@ -61,10 +59,8 @@ class Kinopoisk implements \Stalker\Lib\StbApi\vclubinfo
 
         curl_close($ch);
 
-        //var_dump($page);
-
         libxml_use_internal_errors(true);
-        $page = mb_convert_encoding($page, 'HTML-ENTITIES', "UTF-8");
+        $page = mb_convert_encoding($page, 'HTML-ENTITIES', 'UTF-8');
         $dom = new DomDocument();
         $dom->loadHTML($page);
         libxml_use_internal_errors(false);
@@ -72,11 +68,7 @@ class Kinopoisk implements \Stalker\Lib\StbApi\vclubinfo
         $xpath = new DomXPath($dom);
 
         // Translated name
-        if ($is_film) {
-            $node_list = $xpath->query('//*[@id="headerFilm"]/h1');
-        } else {
-            $node_list = $xpath->query('//*[@class="film-header-group film-basic-info__title"]/h1');
-        }
+        $node_list = $xpath->query('.//div[3]/div/div/div[1]/div[1]/div[1]/h1/span[1]');
 
         if ($node_list !== false && $node_list->length != 0){
             $movie_info['name'] = self::getNodeText($node_list->item(0));
@@ -87,12 +79,7 @@ class Kinopoisk implements \Stalker\Lib\StbApi\vclubinfo
         }
 
         // Original name
-        if ($is_film) {
-            $node_list = $xpath->query('//*[@id="headerFilm"]/span');
-        } else {
-            $node_list = $xpath->query('//*[@class="film-header-group film-basic-info__title"]/div/span');
-        }
-
+        $node_list = $xpath->query('.//div[3]/div/div/div[1]/div[1]/div[1]/div/span[1]');
 
         if ($node_list !== false && $node_list->length != 0){
             $movie_info['o_name'] = self::getNodeText($node_list->item(0));
@@ -103,43 +90,46 @@ class Kinopoisk implements \Stalker\Lib\StbApi\vclubinfo
         }
 
         // Year
-        if ($is_film) {
-            $node_list = $xpath->query('//*[@id="infoTable"]/table/tr[1]/td[2]/div/a');
-        } else {
-            $node_list = $xpath->query('//*[@class="table-col-years__years"]');
-        }
+        $node_list = $xpath->query('.//div[2]/div[1]/div/div[1]/div[2]/a[1]');
 
         if ($node_list !== false && $node_list->length != 0){
             $movie_info['year'] = self::getNodeText($node_list->item(0));
         }
 
         // Country
-        $node_list = $xpath->query('//*[@id="infoTable"]/table/tr[2]/td[2]/div');
+        $node_list = $xpath->query('.//div[contains(text(), "Страна")]/following-sibling::div[1]');
 
         if ($node_list !== false && $node_list->length != 0){
             $movie_info['country'] = self::getNodeText($node_list->item(0));
         }
 
         // Duration
-        $node_list = $xpath->query('//*[@id="runtime"]');
+        $node_list = $xpath->query('.//div[contains(text(), "Время")]/following-sibling::div[1]');
 
         if ($node_list !== false && $node_list->length != 0){
             $movie_info['duration'] = (int) self::getNodeText($node_list->item(0));
         }
 
         // Director
-        $node_list = $xpath->query('//*[@id="infoTable"]/table/tr[4]/td[2]/a');
+        $node_list = $xpath->query('.//div[contains(text(), "Режиссер")]/following-sibling::div[1]');
 
         if ($node_list !== false && $node_list->length != 0){
-            $movie_info['director'] = self::getNodeText($node_list->item(0));
+
+            $directors = array();
+
+            foreach ($node_list as $node){
+                $directors[] = self::getNodeText($node);
+            }
+
+            if (stripos($directors, '...')) {
+            	substr($directors, 0, -5);
+            }
+
+            $movie_info['director'] = $directors;
         }
 
         // Actors
-        if ($is_film) {
-            $node_list = $xpath->query('//*[@id="actorList"]/ul[1]/li');
-        } else {
-            $node_list = $xpath->query('//*[@class="film-crew-block film-basic-info__film-crew"]/div/div/ul');
-        }
+        $node_list = $xpath->query('.//div[3]/div/div/div[2]/div[2]/div[1]/div[1]');
 
         if ($node_list !== false && $node_list->length != 0){
 
@@ -149,22 +139,21 @@ class Kinopoisk implements \Stalker\Lib\StbApi\vclubinfo
                 $actors[] = self::getNodeText($node);
             }
 
-            if ($actors[count($actors) - 1] == '...'){
-                unset($actors[count($actors) - 1]);
-            }
+            unset($actors[0]);
+            unset($actors[count($actors) - 1]);
 
             $movie_info['actors'] = implode(", ", $actors);
         }
 
         // Description
-        $node_list = $xpath->query('//div[@itemprop="description"]');
+        $node_list = $xpath->query('.//div/div[2]/div/div/div[1]/div/div/div[2]/div[2]/div/p');
 
         if ($node_list !== false && $node_list->length != 0){
             $movie_info['description'] = self::getNodeText($node_list->item(0));
         }
 
         // Age limit
-        $node_list = $xpath->query('//div[contains(@class, "ageLimit")]');
+        $node_list = $xpath->query('.//div[contains(text(), "Возраст")]/following-sibling::div[1]');
 
         if ($node_list !== false && $node_list->length != 0){
             $class = $node_list->item(0)->attributes->getNamedItem('class')->nodeValue;
@@ -175,7 +164,7 @@ class Kinopoisk implements \Stalker\Lib\StbApi\vclubinfo
         }
 
         // Rating MPAA
-        $node_list = $xpath->query('//td[contains(@class, "rate_")]');
+        $node_list = $xpath->query('.//div[contains(text(), "MPAA")]/following-sibling::div[1]');
 
         if ($node_list !== false && $node_list->length != 0){
             $class = $node_list->item(0)->attributes->getNamedItem('class')->nodeValue;
